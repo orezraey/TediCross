@@ -2,6 +2,8 @@ import { md2html } from "./md2html";
 import { MessageMap } from "../MessageMap";
 import { LatestDiscordMessageIds } from "./LatestDiscordMessageIds";
 import { handleEmbed } from "./handleEmbed";
+import { downloadEmbedImages, cleanupImages } from "./downloadEmbedImages";
+import { extractMarkdownImages, cleanupMarkdownImages } from "./extractMarkdownImages";
 import { relayOldMessages } from "./relayOldMessages";
 import { Bridge } from "../bridgestuff/Bridge";
 import fs from "fs";
@@ -231,49 +233,185 @@ export function setup(
 
 				// console.dir(message.attachments);
 
+				// Track if we processed markdown images to avoid embed duplication
+				let processedMarkdownImages = false;
+
 				// Check if there is an ordinary text message
 				if (message.cleanContent) {
-					// Modify the message to fit Telegram
-					const processedMessage = md2html(message.cleanContent, settings.telegram);
+					logger.info(`[${bridge.name}] Processing message content: ${message.cleanContent}`);
 
-					// Pass the message on to Telegram
-					try {
-						const textToSend = bridge.discord.sendUsernames
-							? `<b>${senderName}</b>\n${processedMessage}`
-							: processedMessage;
-						// if (replyId === "0" || replyId === undefined) {
-						// 	const tgMessage = await tgBot.telegram.sendMessage(bridge.telegram.chatId, textToSend, {
-						// 		parse_mode: "HTML"
-						// 	});
-						//
-						// 	// Make the mapping so future edits can work
-						// 	messageMap.insert(
-						// 		MessageMap.DISCORD_TO_TELEGRAM,
-						// 		bridge,
-						// 		message.id,
-						// 		tgMessage.message_id.toString()
-						// 	);
-						// } else {
-						const tgMessage = await tgBot.telegram.sendMessage(bridge.telegram.chatId, textToSend, {
-							reply_parameters: {
-								message_id: +replyId
-							},
-							parse_mode: "HTML",
-							link_preview_options: {
-								is_disabled: bridge.discord.disableWebPreviewOnTelegram
-							},
-							message_thread_id: bridge.tgThread
-						});
-						messageMap.insert(
-							MessageMap.DISCORD_TO_TELEGRAM,
-							bridge,
-							message.id,
-							tgMessage.message_id.toString()
+					// First, extract any markdown images from the content
+					const { images: markdownImages, cleanedText } = await extractMarkdownImages(
+						message.cleanContent,
+						logger
+					);
+
+					if (markdownImages.length > 0) {
+						logger.info(
+							`[${bridge.name}] Found ${markdownImages.length} markdown images, sending as media`
 						);
-						// }
-					} catch (err) {
-						logger.error(`[${bridge.name}] Telegram did not accept a message`);
-						logger.error(`[${bridge.name}] Failed message:`, (err as Error).toString());
+
+						try {
+							// Send images as media
+							if (markdownImages.length === 1) {
+								// Single image
+								let caption = "";
+								if (cleanedText.trim()) {
+									const processedText = md2html(cleanedText, settings.telegram);
+									caption = bridge.discord.sendUsernames
+										? `<b>${senderName}</b>\n${processedText}`
+										: processedText;
+								}
+
+								const sentMessage = await tgBot.telegram.sendPhoto(
+									bridge.telegram.chatId,
+									markdownImages[0].media,
+									{
+										caption: caption || undefined,
+										parse_mode: caption ? "HTML" : undefined,
+										reply_parameters:
+											replyId !== "0"
+												? {
+														message_id: +replyId
+													}
+												: undefined,
+										message_thread_id: bridge.tgThread
+									}
+								);
+
+								// Store message mapping
+								messageMap.insert(
+									MessageMap.DISCORD_TO_TELEGRAM,
+									bridge,
+									message.id,
+									sentMessage.message_id.toString()
+								);
+
+								logger.info(`[${bridge.name}] Successfully sent single markdown image`);
+							} else {
+								// Multiple images - send as media group (album)
+								// Add caption only to first image
+								if (cleanedText.trim()) {
+									const processedText = md2html(cleanedText, settings.telegram);
+									const caption = bridge.discord.sendUsernames
+										? `<b>${senderName}</b>\n${processedText}`
+										: processedText;
+									markdownImages[0].caption = caption;
+									markdownImages[0].parse_mode = "HTML";
+								}
+
+								const sentMessages = await tgBot.telegram.sendMediaGroup(
+									bridge.telegram.chatId,
+									markdownImages,
+									{
+										reply_parameters:
+											replyId !== "0"
+												? {
+														message_id: +replyId
+													}
+												: undefined,
+										message_thread_id: bridge.tgThread
+									}
+								);
+
+								// Store message mapping for each message in the group
+								for (const sentMessage of sentMessages) {
+									messageMap.insert(
+										MessageMap.DISCORD_TO_TELEGRAM,
+										bridge,
+										message.id,
+										sentMessage.message_id.toString()
+									);
+								}
+
+								logger.info(
+									`[${bridge.name}] Successfully sent ${sentMessages.length} markdown images as album`
+								);
+							}
+
+							// Clean up image data from memory
+							cleanupMarkdownImages(markdownImages);
+							logger.info(
+								`[${bridge.name}] Cleaned up ${markdownImages.length} markdown image buffers from memory`
+							);
+
+							// Mark that we processed markdown images
+							processedMarkdownImages = true;
+						} catch (err) {
+							logger.error(
+								`[${bridge.name}] Telegram did not accept markdown images:`,
+								(err as Error).toString()
+							);
+
+							// Fallback to text message
+							const processedMessage = md2html(message.cleanContent, settings.telegram);
+							const textToSend = bridge.discord.sendUsernames
+								? `<b>${senderName}</b>\n${processedMessage}`
+								: processedMessage;
+
+							try {
+								const tgMessage = await tgBot.telegram.sendMessage(bridge.telegram.chatId, textToSend, {
+									reply_parameters:
+										replyId !== "0"
+											? {
+													message_id: +replyId
+												}
+											: undefined,
+									parse_mode: "HTML",
+									link_preview_options: {
+										is_disabled: bridge.discord.disableWebPreviewOnTelegram
+									},
+									message_thread_id: bridge.tgThread
+								});
+								messageMap.insert(
+									MessageMap.DISCORD_TO_TELEGRAM,
+									bridge,
+									message.id,
+									tgMessage.message_id.toString()
+								);
+							} catch (fallbackErr) {
+								logger.error(
+									`[${bridge.name}] Telegram did not accept fallback text message:`,
+									(fallbackErr as Error).toString()
+								);
+							}
+						}
+					} else {
+						// No markdown images found, process as regular text message
+						logger.info(`[${bridge.name}] No markdown images found, sending as text`);
+
+						// Modify the message to fit Telegram
+						const processedMessage = md2html(message.cleanContent, settings.telegram);
+
+						// Pass the message on to Telegram
+						try {
+							const textToSend = bridge.discord.sendUsernames
+								? `<b>${senderName}</b>\n${processedMessage}`
+								: processedMessage;
+
+							const tgMessage = await tgBot.telegram.sendMessage(bridge.telegram.chatId, textToSend, {
+								reply_parameters:
+									replyId !== "0"
+										? {
+												message_id: +replyId
+											}
+										: undefined,
+								parse_mode: "HTML",
+								link_preview_options: {
+									is_disabled: bridge.discord.disableWebPreviewOnTelegram
+								},
+								message_thread_id: bridge.tgThread
+							});
+							messageMap.insert(
+								MessageMap.DISCORD_TO_TELEGRAM,
+								bridge,
+								message.id,
+								tgMessage.message_id.toString()
+							);
+						} catch (err) {
+							logger.error(`[${bridge.name}] Telegram did not accept a message`);
+							logger.error(`[${bridge.name}] Failed message:`, (err as Error).toString());
+						}
 					}
 				}
 
@@ -384,31 +522,164 @@ export function setup(
 				}
 
 				// Check the message for embeds
-				for (const embed of message.embeds) {
-					// Ignore it if it is not a "rich" embed (image, link, video, ...)
-					if (embed.data.type !== "rich") {
-						continue;
-					}
+				logger.info(`[${bridge.name}] Message has ${message.embeds.length} total embeds`);
+				message.embeds.forEach((embed, index) => {
+					logger.info(
+						`[${bridge.name}] Embed ${index}: type=${embed.data.type}, url=${embed.url}, image=${embed.image?.url}, thumbnail=${embed.thumbnail?.url}`
+					);
+				});
 
-					// Convert it to something Telegram likes
-					const text = handleEmbed(embed, senderName, settings.telegram);
+				// Process all embeds, not just "rich" ones (but only if we didn't already process markdown images)
+				const allEmbeds = message.embeds;
+				if (allEmbeds.length > 0) {
+					if (processedMarkdownImages) {
+						logger.info(
+							`[${bridge.name}] Skipping embed processing - already processed ${allEmbeds.length} embeds as markdown images`
+						);
+					} else {
+						logger.info(`[${bridge.name}] Processing ${allEmbeds.length} embeds of all types`);
 
-					try {
-						// Send it
-						await tgBot.telegram.sendMessage(bridge.telegram.chatId, text, {
-							reply_parameters: {
-								message_id: +replyId
-							},
-							parse_mode: "HTML",
-							link_preview_options: {
-								is_disabled: bridge.discord.disableWebPreviewOnTelegram
-							},
-							message_thread_id: bridge.tgThread
-						});
-						// }
-					} catch (err) {
-						logger.error(`[${bridge.name}] Telegram did not accept an embed:`, (err as Error).toString());
-					}
+						try {
+							// Download images from embeds
+							const embedImages = await downloadEmbedImages(allEmbeds, logger);
+
+							if (embedImages.length > 0) {
+								logger.info(`[${bridge.name}] Sending ${embedImages.length} embed images as media`);
+
+								// Send images as media
+								if (embedImages.length === 1) {
+									// Single image
+									const sentMessage = await tgBot.telegram.sendPhoto(
+										bridge.telegram.chatId,
+										embedImages[0].media,
+										{
+											caption: embedImages[0].caption,
+											parse_mode: embedImages[0].parse_mode as "HTML",
+											reply_parameters:
+												replyId !== "0"
+													? {
+															message_id: +replyId
+														}
+													: undefined,
+											message_thread_id: bridge.tgThread
+										}
+									);
+
+									// Store message mapping
+									await messageMap.insert(
+										MessageMap.DISCORD_TO_TELEGRAM,
+										bridge,
+										message.id,
+										sentMessage.message_id.toString()
+									);
+
+									logger.info(`[${bridge.name}] Successfully sent single embed image`);
+								} else {
+									// Multiple images - send as media group (album)
+									const sentMessages = await tgBot.telegram.sendMediaGroup(
+										bridge.telegram.chatId,
+										embedImages,
+										{
+											reply_parameters:
+												replyId !== "0"
+													? {
+															message_id: +replyId
+														}
+													: undefined,
+											message_thread_id: bridge.tgThread
+										}
+									);
+
+									// Store message mapping for each message in the group
+									for (const sentMessage of sentMessages) {
+										await messageMap.insert(
+											MessageMap.DISCORD_TO_TELEGRAM,
+											bridge,
+											message.id,
+											sentMessage.message_id.toString()
+										);
+									}
+
+									logger.info(
+										`[${bridge.name}] Successfully sent ${sentMessages.length} embed images as album`
+									);
+								}
+
+								// Clean up image data from memory
+								cleanupImages(embedImages);
+								logger.info(
+									`[${bridge.name}] Cleaned up ${embedImages.length} image buffers from memory`
+								);
+							} else {
+								// No images found, send as text like before (only for rich embeds)
+								logger.info(`[${bridge.name}] No images found in embeds, sending as text`);
+								const richEmbeds = allEmbeds.filter(embed => embed.data.type === "rich");
+								for (const embed of richEmbeds) {
+									const text = handleEmbed(embed, senderName, settings.telegram);
+									const sentMessage = await tgBot.telegram.sendMessage(bridge.telegram.chatId, text, {
+										reply_parameters:
+											replyId !== "0"
+												? {
+														message_id: +replyId
+													}
+												: undefined,
+										parse_mode: "HTML",
+										link_preview_options: {
+											is_disabled: bridge.discord.disableWebPreviewOnTelegram
+										},
+										message_thread_id: bridge.tgThread
+									});
+
+									// Store message mapping
+									await messageMap.insert(
+										MessageMap.DISCORD_TO_TELEGRAM,
+										bridge,
+										message.id,
+										sentMessage.message_id.toString()
+									);
+								}
+							}
+						} catch (err) {
+							logger.error(
+								`[${bridge.name}] Telegram did not accept embed media:`,
+								(err as Error).toString()
+							);
+
+							// Fallback to text-only embeds (only for rich embeds)
+							const richEmbeds = allEmbeds.filter(embed => embed.data.type === "rich");
+							for (const embed of richEmbeds) {
+								try {
+									const text = handleEmbed(embed, senderName, settings.telegram);
+									const sentMessage = await tgBot.telegram.sendMessage(bridge.telegram.chatId, text, {
+										reply_parameters:
+											replyId !== "0"
+												? {
+														message_id: +replyId
+													}
+												: undefined,
+										parse_mode: "HTML",
+										link_preview_options: {
+											is_disabled: bridge.discord.disableWebPreviewOnTelegram
+										},
+										message_thread_id: bridge.tgThread
+									});
+
+									// Store message mapping
+									await messageMap.insert(
+										MessageMap.DISCORD_TO_TELEGRAM,
+										bridge,
+										message.id,
+										sentMessage.message_id.toString()
+									);
+								} catch (fallbackErr) {
+									logger.error(
+										`[${bridge.name}] Telegram did not accept embed text:`,
+										(fallbackErr as Error).toString()
+									);
+								}
+							}
+						}
+					} // End of else block for embed processing
 				}
 			}
 		} else if (

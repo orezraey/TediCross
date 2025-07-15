@@ -127,6 +127,9 @@ export function md2html(text: string, settings: TelegramSettings) {
 	// This is compensation for that discord error
 	text = R.replace("@\u200B", "@", R.defaultTo("", text));
 
+	// Fix Discord auto-wrapped URLs (remove < and > from links)
+	text = text.replace(/<(https?:\/\/[^>\s]+)>/g, "$1");
+
 	// Escape HTML in the input
 	const processedText = escapeHTMLSpecialChars(text);
 
