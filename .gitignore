@@ -54,3 +54,5 @@ yarn.lock
 
 .vscode/
 /todo.txt
+CLAUDE.MD
+settings.yaml
