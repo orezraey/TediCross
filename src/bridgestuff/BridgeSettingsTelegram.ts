@@ -1,5 +1,6 @@
 export interface BridgeSettingsTelegramProperties {
 	chatId: number;
+	botName?: string; // Name of the Telegram bot to use for this bridge
 	sendUsernames: boolean;
 	//relayCommands: boolean;
 	relayJoinMessages: boolean;
@@ -11,6 +12,7 @@ export interface BridgeSettingsTelegramProperties {
 /** Holds settings for the Telegram part of a bridge */
 export class BridgeSettingsTelegram {
 	public chatId: number;
+	public botName?: string;
 	public sendUsernames: boolean;
 	public relayJoinMessages: boolean;
 	public relayLeaveMessages: boolean;
@@ -22,6 +24,7 @@ export class BridgeSettingsTelegram {
 	 *
 	 * @param settings Settings for the Telegram side of the bridge
 	 * @param settings.chatId ID of the Telegram chat to bridge
+	 * @param settings.botName Name of the Telegram bot to use for this bridge (optional)
 	 * @param settings.relayJoinMessages Whether or not to relay join messages from Telegram to Discord
 	 * @param settings.relayLeaveMessages Whether or not to relay leave messages from Telegram to Discord
 	 */
@@ -31,6 +34,9 @@ export class BridgeSettingsTelegram {
 
 		/** ID of the Telegram chat to bridge */
 		this.chatId = Number.parseInt(settings.chatId.toString());
+
+		/** Name of the Telegram bot to use for this bridge */
+		this.botName = settings.botName;
 
 		/** Whether or not to relay join messages from Telegram to Discord */
 		this.relayJoinMessages = settings.relayJoinMessages;

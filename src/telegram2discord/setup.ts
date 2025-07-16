@@ -66,7 +66,7 @@ export interface TediTelegraf extends Telegraf {
  * Sets up the receiving of Telegram messages, and relaying them to Discord
  *
  * @param logger The Logger instance to log messages to
- * @param tgBot The Telegram bot
+ * @param telegramBots Map of Telegram bots by name
  * @param dcBot The Discord bot
  * @param messageMap Map between IDs of messages
  * @param bridgeMap Map of the bridges to use
@@ -74,11 +74,29 @@ export interface TediTelegraf extends Telegraf {
  */
 export function setup(
 	logger: Logger,
-	tgBot: TediTelegraf,
+	telegramBots: Map<string, Telegraf>,
 	dcBot: Client,
 	messageMap: MessageMap,
 	bridgeMap: BridgeMap,
 	settings: Settings
+) {
+	// Setup each Telegram bot
+	for (const [botName, tgBot] of telegramBots) {
+		setupSingleBot(logger, tgBot as TediTelegraf, dcBot, messageMap, bridgeMap, settings, botName);
+	}
+}
+
+/**
+ * Sets up a single Telegram bot
+ */
+function setupSingleBot(
+	logger: Logger,
+	tgBot: TediTelegraf,
+	dcBot: Client,
+	messageMap: MessageMap,
+	bridgeMap: BridgeMap,
+	settings: Settings,
+	botName: string
 ) {
 	//@ts-ignore
 	tgBot.ready = Promise.all([
@@ -89,7 +107,7 @@ export function setup(
 	])
 		.then(([me]) => {
 			// Log the bot's info
-			logger.info(`Telegram: ${me.username} (${me.id})`);
+			logger.info(`Telegram Bot '${botName}': ${me.username} (${me.id})`);
 
 			const myCommands: BotCommand[] = [
 				{

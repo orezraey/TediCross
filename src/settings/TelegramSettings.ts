@@ -1,5 +1,11 @@
-interface SettingProperties {
+interface BotProperties {
+	name: string;
 	token: string;
+}
+
+interface SettingProperties {
+	token?: string; // Legacy support
+	bots: BotProperties[];
 	skipOldMessages: boolean;
 	colonAfterSenderName: boolean;
 	sendEmojiWithStickers: boolean;
@@ -18,7 +24,8 @@ interface SettingProperties {
 
 /** Settings for the Telegram bot */
 export class TelegramSettings {
-	private _token: string;
+	private _token?: string; // Legacy support
+	private _bots: BotProperties[];
 	useFirstNameInsteadOfUsername: boolean;
 	colonAfterSenderName: boolean;
 	skipOldMessages: boolean;
@@ -34,7 +41,8 @@ export class TelegramSettings {
 	 * Creates a new TelegramSettings object
 	 *
 	 * @param settings The raw settings object to use
-	 * @param settings.token The bot token to use. Set to {@link TelegramSettings#GET_TOKEN_FROM_ENVIRONMENT} to read the token from the TELEGRAM_BOT_TOKEN environment variable
+	 * @param settings.token The bot token to use (legacy). Set to {@link TelegramSettings#GET_TOKEN_FROM_ENVIRONMENT} to read the token from the TELEGRAM_BOT_TOKEN environment variable
+	 * @param settings.bots Array of bot configurations with name and token
 	 * @param settings.useFirstNameInsteadOfUsername Whether or not to use a Telegram user's first name instead of the username when displaying the name in the Discord messages
 	 * @param settings.colonAfterSenderName Whether or not to put a colon after the name of the sender in messages from Discord to Telegram. If true, the name is displayed `Name:`. If false, it is displayed `Name`
 	 * @param settings.skipOldMessages Whether or not to skip through all previous messages cached from the telegram-side and start processing new messages ONLY
@@ -51,8 +59,11 @@ export class TelegramSettings {
 		// Make sure the settings are valid
 		TelegramSettings.validate(settings);
 
-		/** The bot token to use, or `env` to indicate the token should be collected from the environment */
+		/** Legacy bot token support */
 		this._token = settings.token;
+
+		/** Array of bot configurations */
+		this._bots = settings.bots || [];
 
 		/** Whether to use a Telegram user's first name instead of the username when displaying the name in the Discord messages */
 		this.useFirstNameInsteadOfUsername = settings.useFirstNameInsteadOfUsername;
@@ -85,11 +96,51 @@ export class TelegramSettings {
 		this.suppressThisIsPrivateBotMessage = settings.suppressThisIsPrivateBotMessage;
 	}
 
-	/** The bot token to use */
+	/** The bot token to use (legacy support) */
 	get token(): string {
-		return this._token === TelegramSettings.GET_TOKEN_FROM_ENVIRONMENT
+		// If using legacy single token configuration
+		if (this._token) {
+			return this._token === TelegramSettings.GET_TOKEN_FROM_ENVIRONMENT
+				? (process.env.TELEGRAM_BOT_TOKEN as string)!
+				: this._token;
+		}
+
+		// If using new multiple bots configuration, return the first bot's token for backward compatibility
+		if (this._bots.length > 0) {
+			const firstBot = this._bots[0];
+			return firstBot.token === TelegramSettings.GET_TOKEN_FROM_ENVIRONMENT
+				? (process.env.TELEGRAM_BOT_TOKEN as string)!
+				: firstBot.token;
+		}
+
+		throw new Error("No Telegram bot token configured");
+	}
+
+	/** Get all configured bots */
+	get bots(): BotProperties[] {
+		// Legacy support: if only token is configured, create a single bot entry
+		if (this._token && this._bots.length === 0) {
+			return [
+				{
+					name: "default",
+					token: this._token
+				}
+			];
+		}
+
+		return this._bots;
+	}
+
+	/** Get bot token by name */
+	getBotToken(botName: string): string {
+		const bot = this._bots.find(b => b.name === botName);
+		if (!bot) {
+			throw new Error(`Bot with name '${botName}' not found`);
+		}
+
+		return bot.token === TelegramSettings.GET_TOKEN_FROM_ENVIRONMENT
 			? (process.env.TELEGRAM_BOT_TOKEN as string)!
-			: this._token;
+			: bot.token;
 	}
 
 	/** Makes a JSON object of the settings. Called automatically by JSON.stringify */
@@ -97,9 +148,15 @@ export class TelegramSettings {
 		// Make a clone of the object
 		const clone = Object.assign({}, this) as Record<string, any>;
 
-		// Change name of the `_token` property to `token`
-		clone.token = clone._token;
+		// Handle legacy token
+		if (this._token) {
+			clone.token = clone._token;
+		}
 		delete clone._token;
+
+		// Add bots array
+		clone.bots = clone._bots;
+		delete clone._bots;
 
 		// It's now perfect
 		return clone;
@@ -113,6 +170,33 @@ export class TelegramSettings {
 	 * @throws If the object is not suitable. The error message says what the problem is
 	 */
 	static validate(settings: SettingProperties) {
+		// Check that either token or bots array is provided
+		if (!settings.token && (!settings.bots || settings.bots.length === 0)) {
+			throw new Error("Either `settings.token` or `settings.bots` must be provided");
+		}
+
+		// Validate bots array if provided
+		if (settings.bots) {
+			if (!Array.isArray(settings.bots)) {
+				throw new Error("`settings.bots` must be an array");
+			}
+
+			for (const [index, bot] of settings.bots.entries()) {
+				if (typeof bot.name !== "string" || bot.name.trim() === "") {
+					throw new Error(`Bot at index ${index}: name must be a non-empty string`);
+				}
+
+				if (typeof bot.token !== "string" || bot.token.trim() === "") {
+					throw new Error(`Bot at index ${index}: token must be a non-empty string`);
+				}
+
+				// Check for duplicate bot names
+				const duplicateIndex = settings.bots.findIndex((b, i) => i !== index && b.name === bot.name);
+				if (duplicateIndex !== -1) {
+					throw new Error(`Duplicate bot name '${bot.name}' found at indices ${index} and ${duplicateIndex}`);
+				}
+			}
+		}
 		// Check that useFirstNameInsteadOfUsername is a boolean
 		if (Boolean(settings.useFirstNameInsteadOfUsername) !== settings.useFirstNameInsteadOfUsername) {
 			throw new Error("`settings.useFirstNameInsteadOfUsername` must be a boolean");
@@ -172,7 +256,12 @@ export class TelegramSettings {
 	/** Default Telegram settings */
 	static get DEFAULTS() {
 		return {
-			token: TelegramSettings.GET_TOKEN_FROM_ENVIRONMENT,
+			bots: [
+				{
+					name: "default",
+					token: TelegramSettings.GET_TOKEN_FROM_ENVIRONMENT
+				}
+			],
 			useFirstNameInsteadOfUsername: false,
 			colonAfterSenderName: false,
 			skipOldMessages: true,

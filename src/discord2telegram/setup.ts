@@ -24,18 +24,46 @@ import { InputMediaVideo, InputMediaAudio, InputMediaDocument, InputMediaPhoto }
  ***********/
 
 /**
+ * Gets the appropriate Telegram bot for a bridge
+ *
+ * @param telegramBots Map of all Telegram bots
+ * @param bridge The bridge to get the bot for
+ * @returns The Telegram bot to use for this bridge
+ */
+function getTelegramBotForBridge(telegramBots: Map<string, Telegraf>, bridge: any): Telegraf {
+	const botName = bridge.telegram.botName || "default";
+	const bot = telegramBots.get(botName);
+
+	if (!bot) {
+		// Fallback to first available bot
+		const firstBot = telegramBots.values().next().value;
+		if (!firstBot) {
+			throw new Error(`No Telegram bot found for bridge '${bridge.name}'`);
+		}
+		return firstBot;
+	}
+
+	return bot;
+}
+
+/**
  * Creates a function to give to 'guildMemberAdd' or 'guildMemberRemove' on a Discord bot
  *
  * @param logger The Logger instance to log messages to
  * @param verb Either "joined" or "left"
  * @param bridgeMap Map of existing bridges
- * @param tgBot The Telegram bot to send the messages to
+ * @param telegramBots Map of all Telegram bots
  *
  * @returns Function which can be given to the 'guildMemberAdd' or 'guildMemberRemove' events of a Discord bot
  *
  * @private
  */
-function makeJoinLeaveFunc(logger: Logger, verb: "joined" | "left", bridgeMap: BridgeMap, tgBot: Telegraf) {
+function makeJoinLeaveFunc(
+	logger: Logger,
+	verb: "joined" | "left",
+	bridgeMap: BridgeMap,
+	telegramBots: Map<string, Telegraf>
+) {
 	// Find out which setting property to check the bridges for
 	const relaySetting = verb === "joined" ? "relayJoinMessages" : "relayLeaveMessages";
 	return function (member: any) {
@@ -56,6 +84,8 @@ function makeJoinLeaveFunc(logger: Logger, verb: "joined" | "left", bridgeMap: B
 				const text = `<b>${member.displayName} (@${member.user.username})</b> ${verb} the Discord side of the chat`;
 
 				try {
+					// Get the appropriate bot for this bridge
+					const tgBot = getTelegramBotForBridge(telegramBots, bridge);
 					// Send it
 					await tgBot.telegram.sendMessage(bridge.telegram.chatId, text, {
 						parse_mode: "HTML",
@@ -80,7 +110,7 @@ function makeJoinLeaveFunc(logger: Logger, verb: "joined" | "left", bridgeMap: B
  *
  * @param logger The Logger instance to log messages to
  * @param dcBot The Discord bot
- * @param tgBot The Telegram bot
+ * @param telegramBots Map of all Telegram bots
  * @param messageMap Map between IDs of messages
  * @param bridgeMap Map of the bridges to use
  * @param settings Settings to use
@@ -89,7 +119,7 @@ function makeJoinLeaveFunc(logger: Logger, verb: "joined" | "left", bridgeMap: B
 export function setup(
 	logger: Logger,
 	dcBot: Client,
-	tgBot: Telegraf,
+	telegramBots: Map<string, Telegraf>,
 	messageMap: MessageMap,
 	bridgeMap: BridgeMap,
 	settings: Settings,
@@ -155,10 +185,10 @@ export function setup(
 	});
 
 	// Listen for users joining the server
-	dcBot.on("guildMemberAdd", makeJoinLeaveFunc(logger, "joined", bridgeMap, tgBot));
+	dcBot.on("guildMemberAdd", makeJoinLeaveFunc(logger, "joined", bridgeMap, telegramBots));
 
 	// Listen for users joining the server
-	dcBot.on("guildMemberRemove", makeJoinLeaveFunc(logger, "left", bridgeMap, tgBot));
+	dcBot.on("guildMemberRemove", makeJoinLeaveFunc(logger, "left", bridgeMap, telegramBots));
 
 	// Listen for Discord messages
 	dcBot.on("messageCreate", async message => {
@@ -263,6 +293,7 @@ export function setup(
 										: processedText;
 								}
 
+								const tgBot = getTelegramBotForBridge(telegramBots, bridge);
 								const sentMessage = await tgBot.telegram.sendPhoto(
 									bridge.telegram.chatId,
 									markdownImages[0].media,
@@ -300,6 +331,7 @@ export function setup(
 									markdownImages[0].parse_mode = "HTML";
 								}
 
+								const tgBot = getTelegramBotForBridge(telegramBots, bridge);
 								const sentMessages = await tgBot.telegram.sendMediaGroup(
 									bridge.telegram.chatId,
 									markdownImages,
@@ -350,6 +382,7 @@ export function setup(
 								: processedMessage;
 
 							try {
+								const tgBot = getTelegramBotForBridge(telegramBots, bridge);
 								const tgMessage = await tgBot.telegram.sendMessage(bridge.telegram.chatId, textToSend, {
 									reply_parameters:
 										replyId !== "0"
@@ -389,6 +422,7 @@ export function setup(
 								? `<b>${senderName}</b>\n${processedMessage}`
 								: processedMessage;
 
+							const tgBot = getTelegramBotForBridge(telegramBots, bridge);
 							const tgMessage = await tgBot.telegram.sendMessage(bridge.telegram.chatId, textToSend, {
 								reply_parameters:
 									replyId !== "0"
@@ -470,6 +504,7 @@ export function setup(
 				for (const oneArray of mediaArray) {
 					const type = oneArray[0].type;
 					try {
+						const tgBot = getTelegramBotForBridge(telegramBots, bridge);
 						if (oneArray.length > 1) {
 							await tgBot.telegram.sendMediaGroup(bridge.telegram.chatId, oneArray, {
 								reply_parameters: {
@@ -549,6 +584,7 @@ export function setup(
 								// Send images as media
 								if (embedImages.length === 1) {
 									// Single image
+									const tgBot = getTelegramBotForBridge(telegramBots, bridge);
 									const sentMessage = await tgBot.telegram.sendPhoto(
 										bridge.telegram.chatId,
 										embedImages[0].media,
@@ -576,6 +612,7 @@ export function setup(
 									logger.info(`[${bridge.name}] Successfully sent single embed image`);
 								} else {
 									// Multiple images - send as media group (album)
+									const tgBot = getTelegramBotForBridge(telegramBots, bridge);
 									const sentMessages = await tgBot.telegram.sendMediaGroup(
 										bridge.telegram.chatId,
 										embedImages,
@@ -616,6 +653,7 @@ export function setup(
 								const richEmbeds = allEmbeds.filter(embed => embed.data.type === "rich");
 								for (const embed of richEmbeds) {
 									const text = handleEmbed(embed, senderName, settings.telegram);
+									const tgBot = getTelegramBotForBridge(telegramBots, bridge);
 									const sentMessage = await tgBot.telegram.sendMessage(bridge.telegram.chatId, text, {
 										reply_parameters:
 											replyId !== "0"
@@ -650,6 +688,7 @@ export function setup(
 							for (const embed of richEmbeds) {
 								try {
 									const text = handleEmbed(embed, senderName, settings.telegram);
+									const tgBot = getTelegramBotForBridge(telegramBots, bridge);
 									const sentMessage = await tgBot.telegram.sendMessage(bridge.telegram.chatId, text, {
 										reply_parameters:
 											replyId !== "0"
@@ -742,6 +781,7 @@ export function setup(
 				const textToSend = bridge.discord.sendUsernames
 					? `<b>${senderName}</b>\n${processedMessage}`
 					: processedMessage;
+				const tgBot = getTelegramBotForBridge(telegramBots, bridge);
 				await tgBot.telegram.editMessageText(bridge.telegram.chatId, +tgMessageId, undefined, textToSend, {
 					parse_mode: "HTML"
 				});
@@ -770,6 +810,7 @@ export function setup(
 					: await messageMap.getCorresponding(MessageMap.DISCORD_TO_TELEGRAM, bridge, message.id);
 				//console.log("d2t delete: " + tgMessageIds);
 				// Try to delete them
+				const tgBot = getTelegramBotForBridge(telegramBots, bridge);
 				await Promise.all(
 					tgMessageIds.map(tgMessageId => tgBot.telegram.deleteMessage(bridge.telegram.chatId, +tgMessageId))
 				);
@@ -796,6 +837,7 @@ export function setup(
 
 		bridgeMap.bridges.forEach(async bridge => {
 			try {
+				const tgBot = getTelegramBotForBridge(telegramBots, bridge);
 				await tgBot.telegram.sendMessage(
 					bridge.telegram.chatId,
 					"**TEDICROSS**\nThe discord side of the bot disconnected! Please check the log"

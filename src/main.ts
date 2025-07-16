@@ -87,8 +87,17 @@ if (R.not(R.equals(rawSettingsObj, newRawSettingsObj))) {
 	}
 }
 
-// Create a Telegram bot
-const tgBot = new Telegraf(settings.telegram.token);
+// Create Telegram bots
+const telegramBots = new Map<string, Telegraf>();
+for (const botConfig of settings.telegram.bots) {
+	const botToken = botConfig.token === "env" 
+		? (process.env.TELEGRAM_BOT_TOKEN as string)!
+		: botConfig.token;
+	telegramBots.set(botConfig.name, new Telegraf(botToken));
+}
+
+// Keep legacy support: get the default bot for backward compatibility
+const tgBot = telegramBots.get("default") || telegramBots.values().next().value;
 
 // Create a Discord bot
 const dcBot = new DiscordClient({
@@ -115,5 +124,5 @@ const bridgeMap = new BridgeMap(settings.bridges.map((bridgeSettings: BridgeProp
  * Set up the bridge *
  *********************/
 
-discordSetup(logger, dcBot, tgBot, messageMap, bridgeMap, settings, args.dataDir);
-telegramSetup(logger, tgBot as TediTelegraf, dcBot, messageMap, bridgeMap, settings);
+discordSetup(logger, dcBot, telegramBots, messageMap, bridgeMap, settings, args.dataDir);
+telegramSetup(logger, telegramBots, dcBot, messageMap, bridgeMap, settings);
