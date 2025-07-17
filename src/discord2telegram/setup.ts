@@ -15,6 +15,27 @@ import { Logger } from "../Logger";
 import { BridgeMap } from "../bridgestuff/BridgeMap";
 import { Telegraf } from "telegraf";
 import { escapeHTMLSpecialChars, ignoreAlreadyDeletedError } from "./helpers";
+
+/**
+ * Adds a blank line after the first line of a message (if enabled)
+ * @param message The message to process
+ * @param enabled Whether to add the blank line
+ * @returns The message with a blank line after the first line (if enabled)
+ */
+function addBlankLineAfterFirstLine(message: string, enabled: boolean): string {
+	if (!enabled) {
+		return message;
+	}
+
+	const lines = message.split("\n");
+	if (lines.length <= 1) {
+		return message;
+	}
+
+	// Insert blank line after first line
+	const result = [lines[0], "", ...lines.slice(1)].join("\n");
+	return result;
+}
 import { Client, Collection, Message, MessageReferenceType, MessageType, REST, Routes, TextChannel } from "discord.js";
 import { Settings } from "../settings/Settings";
 import { InputMediaVideo, InputMediaAudio, InputMediaDocument, InputMediaPhoto } from "telegraf/types";
@@ -62,7 +83,8 @@ function makeJoinLeaveFunc(
 	logger: Logger,
 	verb: "joined" | "left",
 	bridgeMap: BridgeMap,
-	telegramBots: Map<string, Telegraf>
+	telegramBots: Map<string, Telegraf>,
+	settings: Settings
 ) {
 	// Find out which setting property to check the bridges for
 	const relaySetting = verb === "joined" ? "relayJoinMessages" : "relayLeaveMessages";
@@ -81,7 +103,10 @@ function makeJoinLeaveFunc(
 			.filter((bridge: any) => bridge.direction !== Bridge.DIRECTION_TELEGRAM_TO_DISCORD)
 			.forEach(async (bridge: any) => {
 				// Make the text to send
-				const text = `<b>${member.displayName} (@${member.user.username})</b> ${verb} the Discord side of the chat`;
+				const text = addBlankLineAfterFirstLine(
+					`<b>${member.displayName} (@${member.user.username})</b> ${verb} the Discord side of the chat`,
+					settings.telegram.addBlankLineAfterFirstLine
+				);
 
 				try {
 					// Get the appropriate bot for this bridge
@@ -185,10 +210,10 @@ export function setup(
 	});
 
 	// Listen for users joining the server
-	dcBot.on("guildMemberAdd", makeJoinLeaveFunc(logger, "joined", bridgeMap, telegramBots));
+	dcBot.on("guildMemberAdd", makeJoinLeaveFunc(logger, "joined", bridgeMap, telegramBots, settings));
 
 	// Listen for users joining the server
-	dcBot.on("guildMemberRemove", makeJoinLeaveFunc(logger, "left", bridgeMap, telegramBots));
+	dcBot.on("guildMemberRemove", makeJoinLeaveFunc(logger, "left", bridgeMap, telegramBots, settings));
 
 	// Listen for Discord messages
 	dcBot.on("messageCreate", async message => {
@@ -289,8 +314,14 @@ export function setup(
 								if (cleanedText.trim()) {
 									const processedText = md2html(cleanedText, settings.telegram);
 									caption = bridge.discord.sendUsernames
-										? `<b>${senderName}</b>\n${processedText}`
-										: processedText;
+										? addBlankLineAfterFirstLine(
+												`<b>${senderName}</b>\n${processedText}`,
+												settings.telegram.addBlankLineAfterFirstLine
+											)
+										: addBlankLineAfterFirstLine(
+												processedText,
+												settings.telegram.addBlankLineAfterFirstLine
+											);
 								}
 
 								const tgBot = getTelegramBotForBridge(telegramBots, bridge);
@@ -325,8 +356,14 @@ export function setup(
 								if (cleanedText.trim()) {
 									const processedText = md2html(cleanedText, settings.telegram);
 									const caption = bridge.discord.sendUsernames
-										? `<b>${senderName}</b>\n${processedText}`
-										: processedText;
+										? addBlankLineAfterFirstLine(
+												`<b>${senderName}</b>\n${processedText}`,
+												settings.telegram.addBlankLineAfterFirstLine
+											)
+										: addBlankLineAfterFirstLine(
+												processedText,
+												settings.telegram.addBlankLineAfterFirstLine
+											);
 									markdownImages[0].caption = caption;
 									markdownImages[0].parse_mode = "HTML";
 								}
@@ -378,8 +415,14 @@ export function setup(
 							// Fallback to text message
 							const processedMessage = md2html(message.cleanContent, settings.telegram);
 							const textToSend = bridge.discord.sendUsernames
-								? `<b>${senderName}</b>\n${processedMessage}`
-								: processedMessage;
+								? addBlankLineAfterFirstLine(
+										`<b>${senderName}</b>\n${processedMessage}`,
+										settings.telegram.addBlankLineAfterFirstLine
+									)
+								: addBlankLineAfterFirstLine(
+										processedMessage,
+										settings.telegram.addBlankLineAfterFirstLine
+									);
 
 							try {
 								const tgBot = getTelegramBotForBridge(telegramBots, bridge);
@@ -419,8 +462,14 @@ export function setup(
 						// Pass the message on to Telegram
 						try {
 							const textToSend = bridge.discord.sendUsernames
-								? `<b>${senderName}</b>\n${processedMessage}`
-								: processedMessage;
+								? addBlankLineAfterFirstLine(
+										`<b>${senderName}</b>\n${processedMessage}`,
+										settings.telegram.addBlankLineAfterFirstLine
+									)
+								: addBlankLineAfterFirstLine(
+										processedMessage,
+										settings.telegram.addBlankLineAfterFirstLine
+									);
 
 							const tgBot = getTelegramBotForBridge(telegramBots, bridge);
 							const tgMessage = await tgBot.telegram.sendMessage(bridge.telegram.chatId, textToSend, {
@@ -779,8 +828,11 @@ export function setup(
 
 				// Send the update to Telegram
 				const textToSend = bridge.discord.sendUsernames
-					? `<b>${senderName}</b>\n${processedMessage}`
-					: processedMessage;
+					? addBlankLineAfterFirstLine(
+							`<b>${senderName}</b>\n${processedMessage}`,
+							settings.telegram.addBlankLineAfterFirstLine
+						)
+					: addBlankLineAfterFirstLine(processedMessage, settings.telegram.addBlankLineAfterFirstLine);
 				const tgBot = getTelegramBotForBridge(telegramBots, bridge);
 				await tgBot.telegram.editMessageText(bridge.telegram.chatId, +tgMessageId, undefined, textToSend, {
 					parse_mode: "HTML"

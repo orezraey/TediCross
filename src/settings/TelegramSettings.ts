@@ -16,6 +16,7 @@ interface SettingProperties {
 	removeNewlineSpaces: boolean;
 	suppressFileTooBigMessages: boolean;
 	suppressThisIsPrivateBotMessage: boolean;
+	addBlankLineAfterFirstLine: boolean;
 }
 
 /******************************
@@ -36,6 +37,7 @@ export class TelegramSettings {
 	removeNewlineSpaces: boolean;
 	suppressFileTooBigMessages: boolean;
 	suppressThisIsPrivateBotMessage: boolean;
+	addBlankLineAfterFirstLine: boolean;
 
 	/**
 	 * Creates a new TelegramSettings object
@@ -94,6 +96,9 @@ export class TelegramSettings {
 
 		/** Whether to suppress warning in chat when no bridge configured */
 		this.suppressThisIsPrivateBotMessage = settings.suppressThisIsPrivateBotMessage;
+
+		/** Whether to add a blank line after the first line of messages */
+		this.addBlankLineAfterFirstLine = settings.addBlankLineAfterFirstLine;
 	}
 
 	/** The bot token to use (legacy support) */
@@ -246,6 +251,11 @@ export class TelegramSettings {
 		if (Boolean(settings.suppressThisIsPrivateBotMessage) !== settings.suppressThisIsPrivateBotMessage) {
 			throw new Error("`settings.suppressThisIsPrivateBotMessage` must be a boolean");
 		}
+
+		// Check that addBlankLineAfterFirstLine is a boolean
+		if (Boolean(settings.addBlankLineAfterFirstLine) !== settings.addBlankLineAfterFirstLine) {
+			throw new Error("`settings.addBlankLineAfterFirstLine` must be a boolean");
+		}
 	}
 
 	/** Constant telling the Telegram token should be gotten from the environment */
@@ -271,7 +281,8 @@ export class TelegramSettings {
 			replaceExcessiveSpaces: false,
 			removeNewlineSpaces: false,
 			suppressFileTooBigMessages: false,
-			suppressThisIsPrivateBotMessage: false
+			suppressThisIsPrivateBotMessage: false,
+			addBlankLineAfterFirstLine: false
 		};
 	}
 }

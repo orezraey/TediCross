@@ -2,6 +2,27 @@ import { Embed } from "discord.js";
 import { md2html } from "./md2html";
 import { TelegramSettings } from "../settings/TelegramSettings";
 
+/**
+ * Adds a blank line after the first line of a message (if enabled)
+ * @param message The message to process
+ * @param enabled Whether to add the blank line
+ * @returns The message with a blank line after the first line (if enabled)
+ */
+function addBlankLineAfterFirstLine(message: string, enabled: boolean): string {
+	if (!enabled) {
+		return message;
+	}
+
+	const lines = message.split("\n");
+	if (lines.length <= 1) {
+		return message;
+	}
+
+	// Insert blank line after first line
+	const result = [lines[0], "", ...lines.slice(1)].join("\n");
+	return result;
+}
+
 /****************************
  * The handleEmbed function *
  ****************************/
@@ -46,6 +67,6 @@ export function handleEmbed(embed: Embed, senderName: string, settings: Telegram
 		text += "\n<b>Author</b>\n" + embed.author.name + "\n";
 	}
 
-	// All done!
-	return text;
+	// All done! Add blank line after first line (if enabled)
+	return addBlankLineAfterFirstLine(text, settings.addBlankLineAfterFirstLine);
 }

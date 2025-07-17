@@ -46,6 +46,7 @@ const args = yargs
 		type: "string"
 	}).argv as { config: string; dataDir: string };
 
+(async () => {
 // Get the settings
 const settingsPath = args.config;
 const rawSettingsObj = jsYaml.load(fs.readFileSync(settingsPath, "utf-8"));
@@ -125,4 +126,5 @@ const bridgeMap = new BridgeMap(settings.bridges.map((bridgeSettings: BridgeProp
  *********************/
 
 discordSetup(logger, dcBot, telegramBots, messageMap, bridgeMap, settings, args.dataDir);
-telegramSetup(logger, telegramBots, dcBot, messageMap, bridgeMap, settings);
+await telegramSetup(logger, telegramBots, dcBot, messageMap, bridgeMap, settings);
+})();

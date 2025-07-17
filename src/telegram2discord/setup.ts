@@ -72,7 +72,7 @@ export interface TediTelegraf extends Telegraf {
  * @param bridgeMap Map of the bridges to use
  * @param settings The settings to use
  */
-export function setup(
+export async function setup(
 	logger: Logger,
 	telegramBots: Map<string, Telegraf>,
 	dcBot: Client,
@@ -82,14 +82,14 @@ export function setup(
 ) {
 	// Setup each Telegram bot
 	for (const [botName, tgBot] of telegramBots) {
-		setupSingleBot(logger, tgBot as TediTelegraf, dcBot, messageMap, bridgeMap, settings, botName);
+		await setupSingleBot(logger, tgBot as TediTelegraf, dcBot, messageMap, bridgeMap, settings, botName);
 	}
 }
 
 /**
  * Sets up a single Telegram bot
  */
-function setupSingleBot(
+async function setupSingleBot(
 	logger: Logger,
 	tgBot: TediTelegraf,
 	dcBot: Client,
@@ -105,7 +105,7 @@ function setupSingleBot(
 		// Clear old messages, if wanted. XXX Sleep 1 sec if not wanted. See issue #156
 		settings.telegram.skipOldMessages ? clearOldMessages(tgBot) : sleep(1000)
 	])
-		.then(([me]) => {
+		.then(async ([me]) => {
 			// Log the bot's info
 			logger.info(`Telegram Bot '${botName}': ${me.username} (${me.id})`);
 
@@ -149,16 +149,30 @@ function setupSingleBot(
 			};
 
 			// Set default admin permissions for groups and super groups
-			tgBot.telegram.setMyDefaultAdministratorRights({
-				rights: defaultPermissions,
-				forChannels: false
-			});
+			try {
+				await tgBot.telegram.setMyDefaultAdministratorRights({
+					rights: defaultPermissions,
+					forChannels: false
+				});
+			} catch (error) {
+				logger.warn(
+					`Failed to set default admin rights for groups for bot ${tgBot.context.TediCross.username}:`,
+					error
+				);
+			}
 
 			// Set default admin permissions for channel
-			tgBot.telegram.setMyDefaultAdministratorRights({
-				rights: defaultPermissions,
-				forChannels: true
-			});
+			try {
+				await tgBot.telegram.setMyDefaultAdministratorRights({
+					rights: defaultPermissions,
+					forChannels: true
+				});
+			} catch (error) {
+				logger.warn(
+					`Failed to set default admin rights for channels for bot ${tgBot.context.TediCross.username}:`,
+					error
+				);
+			}
 
 			// Set keeping track of where the "This is an instance of TediCross..." has been sent the last minute
 			const antiInfoSpamSet = new Set();
