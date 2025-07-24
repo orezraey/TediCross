@@ -3,6 +3,16 @@ import { md2html } from "./md2html";
 import { TelegramSettings } from "../settings/TelegramSettings";
 
 /**
+ * Converts :neort: pattern between links to 🔁 emoji
+ * @param message The message to process
+ * @returns The message with :neort: replaced by 🔁
+ */
+function convertNeortToEmoji(message: string): string {
+	// Replace :neort: with 🔁 emoji, handling various spacing patterns
+	return message.replace(/\s*:neort:\s*/g, " 🔁 ");
+}
+
+/**
  * Adds a blank line after the first line of a message (if enabled)
  * @param message The message to process
  * @param enabled Whether to add the blank line
@@ -40,12 +50,12 @@ export function handleEmbed(embed: Embed, senderName: string, settings: Telegram
 	let text = `<b>${senderName}</b>\n`;
 
 	// Handle the title
-	if (embed.title !== undefined) {
+	if (embed.title !== undefined && embed.title !== null) {
 		const hasUrl = embed.url !== undefined;
 		if (hasUrl) {
 			text += `<a href="${embed.url}">`;
 		}
-		text += embed.title;
+		text += convertNeortToEmoji(embed.title);
 		if (hasUrl) {
 			text += "</a>";
 		}
@@ -54,17 +64,20 @@ export function handleEmbed(embed: Embed, senderName: string, settings: Telegram
 
 	// Handle the description
 	if (embed.description !== undefined) {
-		text += md2html(embed.description!, settings) + "\n";
+		text += md2html(convertNeortToEmoji(embed.description!), settings) + "\n";
 	}
 
 	// Handle the fields
 	embed.fields.forEach(field => {
-		text += `\n<b>${field.name}</b>\n` + md2html(field.value, settings) + "\n";
+		text +=
+			`\n<b>${convertNeortToEmoji(field.name)}</b>\n` +
+			md2html(convertNeortToEmoji(field.value), settings) +
+			"\n";
 	});
 
 	// Handle the author part
-	if (embed.author !== null) {
-		text += "\n<b>Author</b>\n" + embed.author.name + "\n";
+	if (embed.author !== null && embed.author.name) {
+		text += "\n<b>Author</b>\n" + convertNeortToEmoji(embed.author.name) + "\n";
 	}
 
 	// All done! Add blank line after first line (if enabled)

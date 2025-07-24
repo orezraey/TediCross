@@ -36,6 +36,59 @@ function addBlankLineAfterFirstLine(message: string, enabled: boolean): string {
 	const result = [lines[0], "", ...lines.slice(1)].join("\n");
 	return result;
 }
+
+/**
+ * Adds a blank line before the last line if it's a link (only if link is at the end)
+ * @param message The message to process
+ * @returns The message with a blank line before the last line if it's a link
+ */
+function addBlankLineBeforeLastLineIfLink(message: string): string {
+	const lines = message.split("\n");
+	if (lines.length <= 1) {
+		return message;
+	}
+
+	const lastLine = lines[lines.length - 1].trim();
+	// Check if the last line is a link (starts with http:// or https://)
+	// OR is an HTML link tag containing http:// or https://
+	const isDirectLink = /^https?:\/\//.test(lastLine);
+	const htmlLinkMatch = lastLine.match(/<a\s+href=['"]([^'"]*https?:\/\/[^'"]*)['"].*>.*<\/a>/);
+	const isLink = isDirectLink || htmlLinkMatch;
+
+	if (isLink && lines.length >= 2) {
+		// Check if the line before the last line is not already empty
+		const secondToLastLine = lines[lines.length - 2].trim();
+		if (secondToLastLine !== "") {
+			let processedLastLine = lastLine;
+
+			// If it's a Twitter/X link, convert it to "Abrir Tweet ↗️" hyperlink
+			if (htmlLinkMatch) {
+				const url = htmlLinkMatch[1];
+				if (url.includes("twitter.com") || url.includes("x.com")) {
+					processedLastLine = `<a href="${url}">Abrir Tweet ↗️</a>`;
+				}
+			} else if (isDirectLink && (lastLine.includes("twitter.com") || lastLine.includes("x.com"))) {
+				processedLastLine = `<a href="${lastLine}">Abrir Tweet ↗️</a>`;
+			}
+
+			// Insert blank line before the last line
+			const result = [...lines.slice(0, -1), "", processedLastLine].join("\n");
+			return result;
+		}
+	}
+
+	return message;
+}
+
+/**
+ * Converts :neort: pattern between links to 🔁 emoji
+ * @param message The message to process
+ * @returns The message with :neort: replaced by 🔁
+ */
+function convertNeortToEmoji(message: string): string {
+	// Replace :neort: with 🔁 emoji, handling various spacing patterns
+	return message.replace(/\s*:neort:\s*/g, " 🔁 ");
+}
 import { Client, Collection, Message, MessageReferenceType, MessageType, REST, Routes, TextChannel } from "discord.js";
 import { Settings } from "../settings/Settings";
 import { InputMediaVideo, InputMediaAudio, InputMediaDocument, InputMediaPhoto } from "telegraf/types";
@@ -104,7 +157,9 @@ function makeJoinLeaveFunc(
 			.forEach(async (bridge: any) => {
 				// Make the text to send
 				const text = addBlankLineAfterFirstLine(
-					`<b>${member.displayName} (@${member.user.username})</b> ${verb} the Discord side of the chat`,
+					addBlankLineBeforeLastLineIfLink(
+						`<b>${member.displayName} (@${member.user.username})</b> ${verb} the Discord side of the chat`
+					),
 					settings.telegram.addBlankLineAfterFirstLine
 				);
 
@@ -297,7 +352,7 @@ export function setup(
 
 					// First, extract any markdown images from the content
 					const { images: markdownImages, cleanedText } = await extractMarkdownImages(
-						message.cleanContent,
+						convertNeortToEmoji(message.cleanContent),
 						logger
 					);
 
@@ -315,11 +370,13 @@ export function setup(
 									const processedText = md2html(cleanedText, settings.telegram);
 									caption = bridge.discord.sendUsernames
 										? addBlankLineAfterFirstLine(
-												`<b>${senderName}</b>\n${processedText}`,
+												addBlankLineBeforeLastLineIfLink(
+													`<b>${senderName}</b>\n${processedText}`
+												),
 												settings.telegram.addBlankLineAfterFirstLine
 											)
 										: addBlankLineAfterFirstLine(
-												processedText,
+												addBlankLineBeforeLastLineIfLink(processedText),
 												settings.telegram.addBlankLineAfterFirstLine
 											);
 								}
@@ -357,11 +414,13 @@ export function setup(
 									const processedText = md2html(cleanedText, settings.telegram);
 									const caption = bridge.discord.sendUsernames
 										? addBlankLineAfterFirstLine(
-												`<b>${senderName}</b>\n${processedText}`,
+												addBlankLineBeforeLastLineIfLink(
+													`<b>${senderName}</b>\n${processedText}`
+												),
 												settings.telegram.addBlankLineAfterFirstLine
 											)
 										: addBlankLineAfterFirstLine(
-												processedText,
+												addBlankLineBeforeLastLineIfLink(processedText),
 												settings.telegram.addBlankLineAfterFirstLine
 											);
 									markdownImages[0].caption = caption;
@@ -413,14 +472,17 @@ export function setup(
 							);
 
 							// Fallback to text message
-							const processedMessage = md2html(message.cleanContent, settings.telegram);
+							const processedMessage = md2html(
+								convertNeortToEmoji(message.cleanContent),
+								settings.telegram
+							);
 							const textToSend = bridge.discord.sendUsernames
 								? addBlankLineAfterFirstLine(
-										`<b>${senderName}</b>\n${processedMessage}`,
+										addBlankLineBeforeLastLineIfLink(`<b>${senderName}</b>\n${processedMessage}`),
 										settings.telegram.addBlankLineAfterFirstLine
 									)
 								: addBlankLineAfterFirstLine(
-										processedMessage,
+										addBlankLineBeforeLastLineIfLink(processedMessage),
 										settings.telegram.addBlankLineAfterFirstLine
 									);
 
@@ -457,17 +519,20 @@ export function setup(
 						logger.info(`[${bridge.name}] No markdown images found, sending as text`);
 
 						// Modify the message to fit Telegram
-						const processedMessage = md2html(message.cleanContent, settings.telegram);
+						const convertedMessage = convertNeortToEmoji(message.cleanContent);
+						console.log("DEBUG: Before md2html:", JSON.stringify(convertedMessage));
+						const processedMessage = md2html(convertedMessage, settings.telegram);
+						console.log("DEBUG: After md2html:", JSON.stringify(processedMessage));
 
 						// Pass the message on to Telegram
 						try {
 							const textToSend = bridge.discord.sendUsernames
 								? addBlankLineAfterFirstLine(
-										`<b>${senderName}</b>\n${processedMessage}`,
+										addBlankLineBeforeLastLineIfLink(`<b>${senderName}</b>\n${processedMessage}`),
 										settings.telegram.addBlankLineAfterFirstLine
 									)
 								: addBlankLineAfterFirstLine(
-										processedMessage,
+										addBlankLineBeforeLastLineIfLink(processedMessage),
 										settings.telegram.addBlankLineAfterFirstLine
 									);
 
@@ -824,15 +889,18 @@ export function setup(
 					(settings.telegram.colonAfterSenderName ? ":" : "");
 
 				// Modify the message to fit Telegram
-				const processedMessage = md2html(newMessage.cleanContent || "", settings.telegram);
+				const processedMessage = md2html(convertNeortToEmoji(newMessage.cleanContent || ""), settings.telegram);
 
 				// Send the update to Telegram
 				const textToSend = bridge.discord.sendUsernames
 					? addBlankLineAfterFirstLine(
-							`<b>${senderName}</b>\n${processedMessage}`,
+							addBlankLineBeforeLastLineIfLink(`<b>${senderName}</b>\n${processedMessage}`),
 							settings.telegram.addBlankLineAfterFirstLine
 						)
-					: addBlankLineAfterFirstLine(processedMessage, settings.telegram.addBlankLineAfterFirstLine);
+					: addBlankLineAfterFirstLine(
+							addBlankLineBeforeLastLineIfLink(processedMessage),
+							settings.telegram.addBlankLineAfterFirstLine
+						);
 				const tgBot = getTelegramBotForBridge(telegramBots, bridge);
 				await tgBot.telegram.editMessageText(bridge.telegram.chatId, +tgMessageId, undefined, textToSend, {
 					parse_mode: "HTML"

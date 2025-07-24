@@ -222,7 +222,9 @@ const parseMediaGroup = (ctx: TediCrossContext, byTimer: boolean = false) => {
 				for (const lCtx of ctxArray) {
 					const lPrepared = lCtx.tediCross.prepared?.[0];
 					if (!lPrepared) {
-						ctx.TediCross.logger.error(`Prepared object is undefined for context in media group ${groupId}`);
+						ctx.TediCross.logger.error(
+							`Prepared object is undefined for context in media group ${groupId}`
+						);
 						continue;
 					}
 					if (lPrepared.header) {
