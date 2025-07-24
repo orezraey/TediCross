@@ -212,11 +212,19 @@ const parseMediaGroup = (ctx: TediCrossContext, byTimer: boolean = false) => {
 				//ctx.TediCross.logger.info(`Array Length: ${ctxArray.length}`);
 				const comboCtx: TediCrossContext = ctxArray[0];
 				comboCtx.tediCross.hasMediaGroup = true;
-				const prepared = comboCtx.tediCross.prepared[0];
+				const prepared = comboCtx.tediCross.prepared?.[0];
+				if (!prepared) {
+					ctx.TediCross.logger.error(`Prepared object is undefined for media group ${groupId}`);
+					return;
+				}
 				prepared.files = [];
 
 				for (const lCtx of ctxArray) {
-					const lPrepared = lCtx.tediCross.prepared[0];
+					const lPrepared = lCtx.tediCross.prepared?.[0];
+					if (!lPrepared) {
+						ctx.TediCross.logger.error(`Prepared object is undefined for context in media group ${groupId}`);
+						continue;
+					}
 					if (lPrepared.header) {
 						prepared.header = lPrepared.header;
 					}
