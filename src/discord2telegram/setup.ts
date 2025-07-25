@@ -1,7 +1,6 @@
 import { md2html } from "./md2html";
 import { MessageMap } from "../MessageMap";
 import { LatestDiscordMessageIds } from "./LatestDiscordMessageIds";
-import { handleEmbed } from "./handleEmbed";
 import { downloadEmbedImages, cleanupImages } from "./downloadEmbedImages";
 import { extractMarkdownImages, cleanupMarkdownImages } from "./extractMarkdownImages";
 import { relayOldMessages } from "./relayOldMessages";
@@ -519,10 +518,7 @@ export function setup(
 						logger.info(`[${bridge.name}] No markdown images found, sending as text`);
 
 						// Modify the message to fit Telegram
-						const convertedMessage = convertNeortToEmoji(message.cleanContent);
-						console.log("DEBUG: Before md2html:", JSON.stringify(convertedMessage));
-						const processedMessage = md2html(convertedMessage, settings.telegram);
-						console.log("DEBUG: After md2html:", JSON.stringify(processedMessage));
+						const processedMessage = md2html(convertNeortToEmoji(message.cleanContent), settings.telegram);
 
 						// Pass the message on to Telegram
 						try {
@@ -762,34 +758,8 @@ export function setup(
 									`[${bridge.name}] Cleaned up ${embedImages.length} image buffers from memory`
 								);
 							} else {
-								// No images found, send as text like before (only for rich embeds)
-								logger.info(`[${bridge.name}] No images found in embeds, sending as text`);
-								const richEmbeds = allEmbeds.filter(embed => embed.data.type === "rich");
-								for (const embed of richEmbeds) {
-									const text = handleEmbed(embed, senderName, settings.telegram);
-									const tgBot = getTelegramBotForBridge(telegramBots, bridge);
-									const sentMessage = await tgBot.telegram.sendMessage(bridge.telegram.chatId, text, {
-										reply_parameters:
-											replyId !== "0"
-												? {
-														message_id: +replyId
-													}
-												: undefined,
-										parse_mode: "HTML",
-										link_preview_options: {
-											is_disabled: bridge.discord.disableWebPreviewOnTelegram
-										},
-										message_thread_id: bridge.tgThread
-									});
-
-									// Store message mapping
-									await messageMap.insert(
-										MessageMap.DISCORD_TO_TELEGRAM,
-										bridge,
-										message.id,
-										sentMessage.message_id.toString()
-									);
-								}
+								// No images found in embeds, skip sending embed content (ignore text-only embeds)
+								logger.info(`[${bridge.name}] No images found in embeds, skipping text-only embeds`);
 							}
 						} catch (err) {
 							logger.error(
@@ -797,40 +767,8 @@ export function setup(
 								(err as Error).toString()
 							);
 
-							// Fallback to text-only embeds (only for rich embeds)
-							const richEmbeds = allEmbeds.filter(embed => embed.data.type === "rich");
-							for (const embed of richEmbeds) {
-								try {
-									const text = handleEmbed(embed, senderName, settings.telegram);
-									const tgBot = getTelegramBotForBridge(telegramBots, bridge);
-									const sentMessage = await tgBot.telegram.sendMessage(bridge.telegram.chatId, text, {
-										reply_parameters:
-											replyId !== "0"
-												? {
-														message_id: +replyId
-													}
-												: undefined,
-										parse_mode: "HTML",
-										link_preview_options: {
-											is_disabled: bridge.discord.disableWebPreviewOnTelegram
-										},
-										message_thread_id: bridge.tgThread
-									});
-
-									// Store message mapping
-									await messageMap.insert(
-										MessageMap.DISCORD_TO_TELEGRAM,
-										bridge,
-										message.id,
-										sentMessage.message_id.toString()
-									);
-								} catch (fallbackErr) {
-									logger.error(
-										`[${bridge.name}] Telegram did not accept embed text:`,
-										(fallbackErr as Error).toString()
-									);
-								}
-							}
+							// Skip fallback to text-only embeds (ignore text-only embeds completely)
+							logger.info(`[${bridge.name}] Skipping text-only embeds in fallback mode as well`);
 						}
 					} // End of else block for embed processing
 				}
